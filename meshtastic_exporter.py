@@ -25,7 +25,7 @@ NODE_SNR = Gauge("node_snr", "Signal to noise ratio for messages received direct
 NODE_RSSI = Gauge("node_rssi", "RSSI for messages received directly from the node", ["num"])
 NODE_HOP_LIMIT = Gauge("node_hop_limit", "Hop limit of messages sent by the node", ["num"])
 NODE_HOP_COUNT = Gauge("node_hop_count", "How many hops from the node we are", ["num"])
-DEVICE_METRICS = Gauge("device_metric", "Metric exposed by the device, together with its value.", ["num", "metric"])
+DEVICE_METRICS = Gauge("device_metric", "Metric exposed by the device, together with its value.", ["num", "metric", "type"])
 MESSAGES = Counter("message_count", "Messages sent between nodes", ["src", "dest", "type"])
 
 # latest node information in a dict form digestible for scripts and correlation
@@ -40,7 +40,7 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
     sending_node = packet["from"]
     if "rx_time" in packet["decoded"]:
         set_last_heard(nodes[sending_node], packet["decoded"]["rx_time"])
-    MESSAGES.labels(src=packet["from"],dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",type=message_type).inc()
+    MESSAGES.labels(src=sending_node,dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",type=message_type).inc()
     raw_data = packet["raw"]
     if raw_data.hop_start:
         NODE_HOP_LIMIT.labels(num=sending_node).set(raw_data.hop_start)
@@ -54,7 +54,13 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
             if raw_data.rx_rssi:
                 NODE_RSSI.labels(num=sending_node).set(raw_data.rx_rssi)
     if message_type == "TELEMETRY_APP":
-        # TODO fill for existing message types
+        if "deviceMetrics" in packet['decoded']['telemetry']:
+            for key, value in packet['decoded']['telemetry']['deviceMetrics'].items():
+                DEVICE_METRICS.labels(num=sending_node,metric=key,type='device').set(value)
+        if "environmentMetrics" in packet['decoded']['telemetry']:
+            for key, value in packet['decoded']['telemetry']['environmentMetrics'].items():
+                DEVICE_METRICS.labels(num=sending_node, metric=key, type='environment').set(value)
+    elif message_type == "POSITION_APP":
         pass
     print(f"Received: {packet}")
 
