@@ -40,7 +40,7 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
     INCOMING_MESSAGES.labels(type=message_type).inc()
     sending_node = packet["from"]
     if "rx_time" in packet["decoded"]:
-        set_last_heard(nodes[sending_node], packet["decoded"]["rx_time"])
+        set_last_heard(sending_node, nodes[sending_node]['user'], packet["decoded"]["rx_time"])
     MESSAGES.labels(src=sending_node,dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",type=message_type).inc()
     raw_data = packet["raw"]
     parse_signal_and_hops(raw_data, sending_node)
@@ -54,7 +54,18 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
 
 
 def parse_nodeinfo_packet(packet, sending_node):
-    pass
+    # TODO consider: in case of label renames, should we remove the old instance of this node_info?
+    # if yes, maybe a node_renames counter should be there? definitely a log line.
+    rx_time = packet['rx_time'] if 'rx_time' in packet else time.time()
+    set_last_heard(sending_node, packet['decoded']['user'], rx_time)
+    if sending_node not in nodes.keys():
+        # we update the internal object with limited info we got in the node
+        # in case of a restart, it is anyway in radio's internal memory
+        nodes[sending_node] = {
+            'num': sending_node,
+            'user': packet['decoded']['user'],
+            'lastHeard': rx_time,
+        }
 
 
 def parse_signal_and_hops(raw_data, sending_node):
@@ -102,21 +113,21 @@ def server_loop(interface: MeshInterface, port: int):
     cached_node_info = interface.nodesByNum
     for id, entry in cached_node_info.items():
         nodes[id] = entry
-        set_last_heard(entry, entry['lastHeard'] if 'lastHeard' in entry else '0')
+        set_last_heard(id, entry['user'], entry['lastHeard'] if 'lastHeard' in entry else '0')
     print(f"Nodes: {nodes}")
     while True:
         time.sleep(100)
 
 
-def set_last_heard(entry, last_heard):
+def set_last_heard(num, user, last_heard):
     NODE_INFO.labels(
-        num=entry['num'],
-        id=entry['user']['id'],
-        long_name=entry['user']['longName'],
-        short_name=entry['user']['shortName'],
-        macaddr=entry['user']['macaddr'],
-        hw_model=entry['user']['hwModel'],
-        is_licensed=entry['user']['isLicensed'] if 'isLicensed' in entry['user'] else "False"
+        num=num,
+        id=user['id'],
+        long_name=user['longName'],
+        short_name=user['shortName'],
+        macaddr=user['macaddr'],
+        hw_model=user['hwModel'],
+        is_licensed=user['isLicensed'] if 'isLicensed' in user else "False",
     ).set(last_heard)
 
 
