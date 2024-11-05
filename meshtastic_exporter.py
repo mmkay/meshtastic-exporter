@@ -33,6 +33,7 @@ nodes = {}
 
 app = typer.Typer()
 
+
 def onReceive(packet, interface):  # pylint: disable=unused-argument
     """called when a packet arrives"""
     message_type = packet["decoded"]["portnum"]
@@ -42,6 +43,21 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
         set_last_heard(nodes[sending_node], packet["decoded"]["rx_time"])
     MESSAGES.labels(src=sending_node,dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",type=message_type).inc()
     raw_data = packet["raw"]
+    parse_signal_and_hops(raw_data, sending_node)
+    if message_type == "TELEMETRY_APP":
+        parse_telemetry_packet(packet, sending_node)
+    elif message_type == "POSITION_APP":
+        parse_position_packet(packet, sending_node)
+    elif message_type == "NODEINFO_APP":
+        parse_nodeinfo_packet(packet, sending_node)
+    print(f"Received: {packet}")
+
+
+def parse_nodeinfo_packet(packet, sending_node):
+    pass
+
+
+def parse_signal_and_hops(raw_data, sending_node):
     if raw_data.hop_start:
         NODE_HOP_LIMIT.labels(num=sending_node).set(raw_data.hop_start)
     if raw_data.hop_limit and raw_data.hop_start:
@@ -53,16 +69,25 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
                 NODE_SNR.labels(num=sending_node).set(raw_data.rx_snr)
             if raw_data.rx_rssi:
                 NODE_RSSI.labels(num=sending_node).set(raw_data.rx_rssi)
-    if message_type == "TELEMETRY_APP":
-        if "deviceMetrics" in packet['decoded']['telemetry']:
-            for key, value in packet['decoded']['telemetry']['deviceMetrics'].items():
-                DEVICE_METRICS.labels(num=sending_node,metric=key,type='device').set(value)
-        if "environmentMetrics" in packet['decoded']['telemetry']:
-            for key, value in packet['decoded']['telemetry']['environmentMetrics'].items():
-                DEVICE_METRICS.labels(num=sending_node, metric=key, type='environment').set(value)
-    elif message_type == "POSITION_APP":
-        pass
-    print(f"Received: {packet}")
+
+
+def parse_position_packet(packet, sending_node):
+    if "position" in packet['decoded']:
+        if "latitude" in packet['decoded']['position']:
+            NODE_LATITUDE.labels(num=sending_node).set(packet['decoded']['position']['latitude'])
+        if "longitude" in packet['decoded']['position']:
+            NODE_LONGITUDE.labels(num=sending_node).set(packet['decoded']['position']['longitude'])
+        if "altitude" in packet['decoded']['position']:
+            NODE_ALTITUDE.labels(num=sending_node).set(packet['decoded']['position']['altitude'])
+
+
+def parse_telemetry_packet(packet, sending_node):
+    if "deviceMetrics" in packet['decoded']['telemetry']:
+        for key, value in packet['decoded']['telemetry']['deviceMetrics'].items():
+            DEVICE_METRICS.labels(num=sending_node, metric=key, type='device').set(value)
+    if "environmentMetrics" in packet['decoded']['telemetry']:
+        for key, value in packet['decoded']['telemetry']['environmentMetrics'].items():
+            DEVICE_METRICS.labels(num=sending_node, metric=key, type='environment').set(value)
 
 
 def onConnection(interface, topic=pub.AUTO_TOPIC):  # pylint: disable=unused-argument
