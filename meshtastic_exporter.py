@@ -1,20 +1,16 @@
+import sys
+import time
 from typing import Optional
 
 import meshtastic
-import meshtastic.tcp_interface
 import meshtastic.ble_interface
-import yaml
-from meshtastic.mesh_interface import MeshInterface
-
-import sys
-import time
+import meshtastic.serial_interface
+import meshtastic.tcp_interface
 import typer
-
-from pubsub import pub
-
+from meshtastic import BROADCAST_NUM
+from meshtastic.mesh_interface import MeshInterface
 from prometheus_client import start_http_server, Gauge, Counter
-from meshtastic import BROADCAST_NUM, BROADCAST_ADDR
-from meshtastic.protobuf.portnums_pb2 import PortNum
+from pubsub import pub
 
 INCOMING_MESSAGES = Counter("incoming_messages", "Number of messages received by the radio.", ["type"])
 NODE_INFO = Gauge("node_info", "Basic information about the nodes. Value is the last seen timestamp.", ["num", "id", "long_name", "short_name", "macaddr", "hw_model", "is_licensed"])
@@ -158,6 +154,14 @@ def ble(address: Optional[str] = "any", port: int = 8000):
         server_loop(meshtastic.ble_interface.BLEInterface(address=address), port)
     except Exception as ex:
         print(f"Error: Could not connect to {address} {ex}")
+        sys.exit(1)
+
+@app.command()
+def serial(path: Optional[str] = None, port: int = 8000):
+    try:
+        server_loop(meshtastic.serial_interface.SerialInterface(devPath=path), port)
+    except Exception as ex:
+        print(f"Error: Could not connect to serial {ex}")
         sys.exit(1)
 
 
