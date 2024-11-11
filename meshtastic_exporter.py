@@ -12,17 +12,43 @@ from meshtastic.mesh_interface import MeshInterface
 from prometheus_client import start_http_server, Gauge, Counter
 from pubsub import pub
 
-INCOMING_MESSAGES = Counter("incoming_messages", "Number of messages received by the radio.", ["type"])
-NODE_INFO = Gauge("node_info", "Basic information about the nodes. Value is the last seen timestamp.", ["num", "id", "long_name", "short_name", "macaddr", "hw_model", "is_licensed"])
-NODE_LATITUDE = Gauge("node_latitude", "Latitude of the node, if it exposes position.", ["num"])
-NODE_LONGITUDE = Gauge("node_longitude", "Longitude of the node, if it exposes position.", ["num"])
-NODE_ALTITUDE = Gauge("node_altitude", "Altitude of the node, if it exposes position.", ["num"])
-NODE_SNR = Gauge("node_snr", "Signal to noise ratio for messages received directly from the node", ["num"])
-NODE_RSSI = Gauge("node_rssi", "RSSI for messages received directly from the node", ["num"])
-NODE_HOP_LIMIT = Gauge("node_hop_limit", "Hop limit of messages sent by the node", ["num"])
+INCOMING_MESSAGES = Counter(
+    "incoming_messages", "Number of messages received by the radio.", ["type"]
+)
+NODE_INFO = Gauge(
+    "node_info",
+    "Basic information about the nodes. Value is the last seen timestamp.",
+    ["num", "id", "long_name", "short_name", "macaddr", "hw_model", "is_licensed"],
+)
+NODE_LATITUDE = Gauge(
+    "node_latitude", "Latitude of the node, if it exposes position.", ["num"]
+)
+NODE_LONGITUDE = Gauge(
+    "node_longitude", "Longitude of the node, if it exposes position.", ["num"]
+)
+NODE_ALTITUDE = Gauge(
+    "node_altitude", "Altitude of the node, if it exposes position.", ["num"]
+)
+NODE_SNR = Gauge(
+    "node_snr",
+    "Signal to noise ratio for messages received directly from the node",
+    ["num"],
+)
+NODE_RSSI = Gauge(
+    "node_rssi", "RSSI for messages received directly from the node", ["num"]
+)
+NODE_HOP_LIMIT = Gauge(
+    "node_hop_limit", "Hop limit of messages sent by the node", ["num"]
+)
 NODE_HOP_COUNT = Gauge("node_hop_count", "How many hops from the node we are", ["num"])
-DEVICE_METRICS = Gauge("device_metric", "Metric exposed by the device, together with its value.", ["num", "metric", "type"])
-MESSAGES = Counter("message_count", "Messages sent between nodes", ["src", "dest", "type"])
+DEVICE_METRICS = Gauge(
+    "device_metric",
+    "Metric exposed by the device, together with its value.",
+    ["num", "metric", "type"],
+)
+MESSAGES = Counter(
+    "message_count", "Messages sent between nodes", ["src", "dest", "type"]
+)
 
 # latest node information in a dict form digestible for scripts and correlation
 nodes = {}
@@ -37,8 +63,14 @@ def on_receive(packet, interface):  # pylint: disable=unused-argument
     INCOMING_MESSAGES.labels(type=message_type).inc()
     sending_node = packet["from"]
     if message_type != "ENCRYPTED" and "rx_time" in packet["decoded"]:
-        set_last_heard(sending_node, nodes[sending_node]['user'], packet["decoded"]["rx_time"])
-    MESSAGES.labels(src=sending_node,dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",type=message_type).inc()
+        set_last_heard(
+            sending_node, nodes[sending_node]["user"], packet["decoded"]["rx_time"]
+        )
+    MESSAGES.labels(
+        src=sending_node,
+        dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",
+        type=message_type,
+    ).inc()
     raw_data = packet["raw"]
     parse_signal_and_hops(raw_data, sending_node)
     if message_type == "TELEMETRY_APP":
@@ -52,15 +84,15 @@ def on_receive(packet, interface):  # pylint: disable=unused-argument
 def parse_nodeinfo_packet(packet, sending_node):
     # TODO consider: in case of label renames, should we remove the old instance of this node_info?
     # if yes, maybe a node_renames counter should be there? definitely a log line.
-    rx_time = packet['rx_time'] if 'rx_time' in packet else time.time()
-    set_last_heard(sending_node, packet['decoded']['user'], rx_time)
+    rx_time = packet["rx_time"] if "rx_time" in packet else time.time()
+    set_last_heard(sending_node, packet["decoded"]["user"], rx_time)
     if sending_node not in nodes.keys():
         # we update the internal object with limited info we got in the node
         # in case of a restart, it is anyway in radio's internal memory
         nodes[sending_node] = {
-            'num': sending_node,
-            'user': packet['decoded']['user'],
-            'lastHeard': rx_time,
+            "num": sending_node,
+            "user": packet["decoded"]["user"],
+            "lastHeard": rx_time,
         }
 
 
@@ -79,25 +111,35 @@ def parse_signal_and_hops(raw_data, sending_node):
 
 
 def parse_position_packet(packet, sending_node):
-    if "position" in packet['decoded']:
-        if "latitude" in packet['decoded']['position']:
-            NODE_LATITUDE.labels(num=sending_node).set(packet['decoded']['position']['latitude'])
-        if "longitude" in packet['decoded']['position']:
-            NODE_LONGITUDE.labels(num=sending_node).set(packet['decoded']['position']['longitude'])
-        if "altitude" in packet['decoded']['position']:
-            NODE_ALTITUDE.labels(num=sending_node).set(packet['decoded']['position']['altitude'])
+    if "position" in packet["decoded"]:
+        if "latitude" in packet["decoded"]["position"]:
+            NODE_LATITUDE.labels(num=sending_node).set(
+                packet["decoded"]["position"]["latitude"]
+            )
+        if "longitude" in packet["decoded"]["position"]:
+            NODE_LONGITUDE.labels(num=sending_node).set(
+                packet["decoded"]["position"]["longitude"]
+            )
+        if "altitude" in packet["decoded"]["position"]:
+            NODE_ALTITUDE.labels(num=sending_node).set(
+                packet["decoded"]["position"]["altitude"]
+            )
 
 
 def parse_telemetry_packet(packet, sending_node):
-    if "deviceMetrics" in packet['decoded']['telemetry']:
-        for key, value in packet['decoded']['telemetry']['deviceMetrics'].items():
-            DEVICE_METRICS.labels(num=sending_node, metric=key, type='device').set(value)
-    if "environmentMetrics" in packet['decoded']['telemetry']:
-        for key, value in packet['decoded']['telemetry']['environmentMetrics'].items():
-            DEVICE_METRICS.labels(num=sending_node, metric=key, type='environment').set(value)
-    if "localStats" in packet['decoded']['telemetry']:
-        for key, value in packet['decoded']['telemetry']['localStats'].items():
-            DEVICE_METRICS.labels(num=sending_node, metric=key, type='local').set(value)
+    if "deviceMetrics" in packet["decoded"]["telemetry"]:
+        for key, value in packet["decoded"]["telemetry"]["deviceMetrics"].items():
+            DEVICE_METRICS.labels(num=sending_node, metric=key, type="device").set(
+                value
+            )
+    if "environmentMetrics" in packet["decoded"]["telemetry"]:
+        for key, value in packet["decoded"]["telemetry"]["environmentMetrics"].items():
+            DEVICE_METRICS.labels(num=sending_node, metric=key, type="environment").set(
+                value
+            )
+    if "localStats" in packet["decoded"]["telemetry"]:
+        for key, value in packet["decoded"]["telemetry"]["localStats"].items():
+            DEVICE_METRICS.labels(num=sending_node, metric=key, type="local").set(value)
 
 
 def on_connection(interface, topic=pub.AUTO_TOPIC):  # pylint: disable=unused-argument
@@ -112,7 +154,9 @@ def server_loop(interface: MeshInterface, port: int):
     cached_node_info = interface.nodesByNum
     for id, entry in cached_node_info.items():
         nodes[id] = entry
-        set_last_heard(id, entry['user'], entry['lastHeard'] if 'lastHeard' in entry else '0')
+        set_last_heard(
+            id, entry["user"], entry["lastHeard"] if "lastHeard" in entry else "0"
+        )
     print(f"Nodes: {nodes}")
     while True:
         time.sleep(100)
@@ -121,12 +165,12 @@ def server_loop(interface: MeshInterface, port: int):
 def set_last_heard(num, user, last_heard):
     NODE_INFO.labels(
         num=num,
-        id=user['id'],
-        long_name=user['longName'],
-        short_name=user['shortName'],
-        macaddr=user['macaddr'],
-        hw_model=user['hwModel'],
-        is_licensed=user['isLicensed'] if 'isLicensed' in user else "False",
+        id=user["id"],
+        long_name=user["longName"],
+        short_name=user["shortName"],
+        macaddr=user["macaddr"],
+        hw_model=user["hwModel"],
+        is_licensed=user["isLicensed"] if "isLicensed" in user else "False",
     ).set(last_heard)
 
 
@@ -151,9 +195,13 @@ def ble(address: Optional[str] = "any", port: int = 8000, discover: bool = False
         potential_devices = meshtastic.ble_interface.BLEClient().discover()
         for device in potential_devices:
             try:
-                server_loop(meshtastic.ble_interface.BLEInterface(address=device.address), port)
+                server_loop(
+                    meshtastic.ble_interface.BLEInterface(address=device.address), port
+                )
             except Exception as ex:
-                print(f"Could not connect to {device.address}, likely not a Meshtastic device. Exception: {ex}")
+                print(
+                    f"Could not connect to {device.address}, likely not a Meshtastic device. Exception: {ex}"
+                )
                 continue
         print("Error: No Meshtastic-compatible devices found. Exiting.")
         sys.exit(1)
