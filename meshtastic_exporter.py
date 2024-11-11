@@ -30,12 +30,13 @@ nodes = {}
 app = typer.Typer()
 
 
-def onReceive(packet, interface):  # pylint: disable=unused-argument
+def on_receive(packet, interface):  # pylint: disable=unused-argument
     """called when a packet arrives"""
-    message_type = packet["decoded"]["portnum"]
+    print(f"Received: {packet}")
+    message_type = packet["decoded"]["portnum"] if "decoded" in packet else "ENCRYPTED"
     INCOMING_MESSAGES.labels(type=message_type).inc()
     sending_node = packet["from"]
-    if "rx_time" in packet["decoded"]:
+    if message_type != "ENCRYPTED" and "rx_time" in packet["decoded"]:
         set_last_heard(sending_node, nodes[sending_node]['user'], packet["decoded"]["rx_time"])
     MESSAGES.labels(src=sending_node,dest=packet["to"] if packet["to"] != BROADCAST_NUM else "all",type=message_type).inc()
     raw_data = packet["raw"]
@@ -46,7 +47,6 @@ def onReceive(packet, interface):  # pylint: disable=unused-argument
         parse_position_packet(packet, sending_node)
     elif message_type == "NODEINFO_APP":
         parse_nodeinfo_packet(packet, sending_node)
-    print(f"Received: {packet}")
 
 
 def parse_nodeinfo_packet(packet, sending_node):
@@ -95,16 +95,19 @@ def parse_telemetry_packet(packet, sending_node):
     if "environmentMetrics" in packet['decoded']['telemetry']:
         for key, value in packet['decoded']['telemetry']['environmentMetrics'].items():
             DEVICE_METRICS.labels(num=sending_node, metric=key, type='environment').set(value)
+    if "localStats" in packet['decoded']['telemetry']:
+        for key, value in packet['decoded']['telemetry']['localStats'].items():
+            DEVICE_METRICS.labels(num=sending_node, metric=key, type='local').set(value)
 
 
-def onConnection(interface, topic=pub.AUTO_TOPIC):  # pylint: disable=unused-argument
+def on_connection(interface, topic=pub.AUTO_TOPIC):  # pylint: disable=unused-argument
     """called when we (re)connect to the radio"""
     print("radio connected")
 
 
 def server_loop(interface: MeshInterface, port: int):
-    pub.subscribe(onReceive, "meshtastic.receive")
-    pub.subscribe(onConnection, "meshtastic.connection.established")
+    pub.subscribe(on_receive, "meshtastic.receive")
+    pub.subscribe(on_connection, "meshtastic.connection.established")
     start_http_server(port)
     cached_node_info = interface.nodesByNum
     for id, entry in cached_node_info.items():
@@ -137,11 +140,15 @@ def tcp(host: str = "meshtastic.local", port: int = 8000):
 
 
 @app.command()
-def ble(address: Optional[str] = "any", port: int = 8000):
-    # TODO seems like I need to figure out how to pair a Bluetooth radio with a computer first
-    if address == "any":
+def ble(address: Optional[str] = "any", port: int = 8000, discover: bool = False):
+    # So far I wasn't able to connect to a bluetooth radio that had the random PIN pairing
+    # It however seems to work fine when the radio doesn't have PIN setup
+    if discover:
         potential_devices = meshtastic.ble_interface.BLEClient().discover()
         print(f"Potential devices: {potential_devices}")
+        sys.exit(0)
+    if address == "any":
+        potential_devices = meshtastic.ble_interface.BLEClient().discover()
         for device in potential_devices:
             try:
                 server_loop(meshtastic.ble_interface.BLEInterface(address=device.address), port)
@@ -155,6 +162,7 @@ def ble(address: Optional[str] = "any", port: int = 8000):
     except Exception as ex:
         print(f"Error: Could not connect to {address} {ex}")
         sys.exit(1)
+
 
 @app.command()
 def serial(path: Optional[str] = None, port: int = 8000):
